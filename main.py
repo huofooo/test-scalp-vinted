@@ -1,68 +1,53 @@
 import requests
+from bs4 import BeautifulSoup
 import time
 import hashlib
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/1375552352010109040/ASAptOz6NiXR6eWPLvjUl6Vsx-SgGRJyIjx3KeRuUOtZiknHvokvP73e0nWGm1hyTvIP"
-SEARCH_URL = "https://www.vinted.fr/catalog?search_text=steelbook%204k&order=newest_first"
+SEARCH_URL = "https://www.vinted.fr/vetements?search_text=steelbook+4k&order=newest_first"
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 SENT_ADS = set()
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+def hash_ad(url):
+    return hashlib.md5(url.encode()).hexdigest()
 
-def fetch_ads():
+def get_ads():
     try:
         response = requests.get(SEARCH_URL, headers=HEADERS)
-        if response.status_code != 200:
-            print(f"❌ Erreur HTTP : {response.status_code}")
-            print("Contenu reçu :", response.text[:200])
-            return []
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        json_data = response.json()
-        return json_data.get("items", [])
+        items = soup.select("a[href^='/items/']")
+        ads = []
+        for item in items:
+            url = "https://www.vinted.fr" + item["href"]
+            title = item.get_text(strip=True)
+            ad_hash = hash_ad(url)
 
+            if ad_hash not in SENT_ADS:
+                ads.append((url, title, ad_hash))
+
+        return ads
     except Exception as e:
         print("❌ Erreur pendant la récupération :", e)
         return []
 
-def send_discord_notification(ad):
-    title = ad["title"]
-    price = ad["price"]
-    url = f'https://www.vinted.fr{ad["url"]}'
-    image_url = ad["photo"]["url"]
+def send_discord_message(url, title):
+    message = f"🆕 **{title}**\n🔗 {url}"
+    if len(message) > 2000:
+        message = message[:1997] + "..."
 
-    content = f"**{title}**\n💰 {price} €\n🔗 {url}\n📸 {image_url}"
+    r = requests.post(WEBHOOK_URL, json={"content": message})
+    if r.status_code not in (200, 204):
+        print("❌ Erreur Discord :", r.status_code, r.text)
 
-    if len(content) > 2000:
-        content = content[:1997] + "..."
-
-    data = {
-        "content": content
-    }
-
-    r = requests.post(WEBHOOK_URL, json=data)
-    if r.status_code != 204 and r.status_code != 200:
-        print("❌ Échec de l'envoi Discord :", r.status_code, r.text)
-
-def hash_ad(ad):
-    return hashlib.md5(ad["url"].encode()).hexdigest()
-
-print("✅ Scraper Vinted démarré...")
+print("✅ Scraper HTML lancé...")
 
 while True:
-    print("🔎 Vérification des annonces Vinted...")
-    ads = fetch_ads()
-    if ads:
-        for ad in ads:
-            ad_id = hash_ad(ad)
-            if ad_id not in SENT_ADS:
-                send_discord_notification(ad)
-                SENT_ADS.add(ad_id)
-                print(f"✅ Nouvelle annonce envoyée : {ad['title']}")
-            else:
-                print(f"⏩ Annonce déjà envoyée : {ad['title']}")
-    else:
-        print("⚠️ Aucune annonce détectée.")
-
+    print("🔄 Vérification en cours...")
+    ads = get_ads()
+    for url, title, ad_hash in ads:
+        send_discord_message(url, title)
+        SENT_ADS.add(ad_hash)
+        print(f"✅ Nouvelle annonce envoyée : {title}")
     time.sleep(60)
