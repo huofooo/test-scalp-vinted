@@ -1,130 +1,58 @@
-import csv
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import requests  # Pour envoyer des notifications Discord
+
+import requests
 import time
 
+WEBHOOK_URL = "https://discord.com/api/webhooks/1375552352010109040/ASAptOz6NiXR6eWPLvjUl6Vsx-SgGRJyIjx3KeRuUOtZiknHvokvP73e0nWGm1hyTvIP"
+SEARCH_URL = "https://www.vinted.fr/vetements?search_text=Steelbook%204k&order=newest_first"
 
-# Fonction pour envoyer une notification via Discord
-def envoyer_notification_discord(webhook_url, title, message, image_url=None):
-    # Structure du message à envoyer
+def send_discord_notification(item):
     data = {
-        "embeds": [
-            {
-                "title": title,
-                "description": message,
-                "color": 5814783,  # Couleur (facultatif)
-                "image": {
-                    "url": image_url  # URL de l'image (facultatif)
-                } if image_url else {}
-            }
-        ]
+        "content": f"📦 Nouvelle annonce Vinted : {item['title']}\n💶 Prix : {item['price']} €\n🔗 Lien : {item['url']}"
     }
+    response = requests.post(WEBHOOK_URL, json=data)
+    if response.status_code != 204:
+        print("❌ Échec de l'envoi Discord :", response.status_code, response.text)
 
-    # Envoi de la requête POST au webhook Discord
-    response = requests.post(webhook_url, json=data)
-
-    # Vérifie si l'envoi a réussi
-    if response.status_code == 204:
-        print("Notification envoyée avec succès!")
-    else:
-        print(f"Erreur lors de l'envoi de la notification: {response.status_code}")
-
-
-def rechercher_annonces():
-    """
-    Ouvre le navigateur, accède à Vinted avec le filtre 'Derniers articles',
-    effectue une recherche avec le mot-clé "lot de cartes Pokémon", puis extrait
-    les titres, prix, liens et images des articles affichés.
-    """
-    # Configuration des options Chrome
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Exécution sans interface graphique
-    chrome_options.add_argument("--disable-gpu")  # Désactive l'accélération matérielle
-    chrome_options.add_argument("--no-sandbox")  # Désactive le sandboxing
-
-    # Démarrage du navigateur (avec Selenium Manager)
-    driver = webdriver.Chrome(options=chrome_options)
-
+def fetch_new_items():
     try:
-        # URL avec le filtre "Derniers articles"
-        mot_cle = "lot de cartes Pokémon"  # Mot-clé fixe
-        url = f"https://www.vinted.fr/catalog?search_text={mot_cle}&order=newest_first&page=1"
-        driver.get(url)
-        print(f"Page de recherche Vinted pour '{mot_cle}' avec tri par 'Derniers articles' chargée.")
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+        response = requests.get(SEARCH_URL, headers=headers)
+        if response.status_code != 200:
+            print(f"❌ Erreur HTTP : {response.status_code}")
+            return []
 
-        # Attendre et accepter les cookies (si le bouton est présent)
-        try:
-            accept_cookies_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "onetrust-accept-btn-handler"))
-            )
-            accept_cookies_button.click()
-            print("Cookies acceptés.")
-        except Exception as e:
-            print(f"Aucun bouton de cookies trouvé ou déjà accepté : {e}")
-
-        # Attendre que les résultats se chargent
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_all_elements_located((By.CLASS_NAME, "feed-grid__item"))
-        )
-
-        # Récupérer les liens des articles et les images
-        items = driver.find_elements(By.CLASS_NAME, "feed-grid__item")
-
-        # Vérifier si des articles ont été trouvés
-        if not items:
-            print("Aucun article trouvé.")
-            return  # Sortir de la fonction si aucun article n'est trouvé
-
-        article_data = []
-        message = "Voici les derniers articles trouvés :\n"
-
-        for item in items[:10]:  # Limite à 10 résultats
-            try:
-                # Trouver le lien de l'article
-                article_link = item.find_element(By.CSS_SELECTOR, "a.new-item-box__overlay")
-                article_url = article_link.get_attribute("href")  # Récupère l'URL de l'article
-
-                # Trouver l'image de l'article
-                image_element = item.find_element(By.CSS_SELECTOR, "img")
-                image_url = image_element.get_attribute("src")  # Récupère l'URL de l'image
-
-                # Extraire le titre et d'autres informations
-                article_title = article_link.get_attribute("title")  # Récupère le titre de l'article
-                article_data.append([article_title, article_url, image_url])
-
-                # Formatage du message pour la notification
-                message += f"**{article_title}**\n{article_url}\n\n"
-
-                print(f"Article : {article_title}")
-                print(f"Lien : {article_url}")
-                print(f"Image : {image_url}")
-                print("-" * 50)  # Séparateur pour chaque article
-
-            except Exception as e:
-                print(f"Erreur lors de l'extraction des données d'un article : {e}")
-
-
-        # Envoyer une notification via Discord avec les articles
-        webhook_url = "###################"  # Remplace par ton URL de webhook
-        title = "Nouveaux Articles Pokémon"
-        envoyer_notification_discord(webhook_url, title, message)
-
+        # Recherche basique des données
+        items = []
+        for match in response.text.split('data-testid="item-box"'):
+            if 'href="' in match and '€' in match:
+                try:
+                    url = "https://www.vinted.fr" + match.split('href="')[1].split('"')[0]
+                    title = match.split('title="')[1].split('"')[0]
+                    price = match.split("€")[0].split(">")[-1].strip()
+                    item_id = url.split("-")[-1]
+                    items.append({
+                        "id": item_id,
+                        "title": title,
+                        "price": price,
+                        "url": url
+                    })
+                except Exception as e:
+                    continue
+        return items
     except Exception as e:
-        print(f"Erreur lors de l'exécution : {e}")
+        print("❌ Erreur :", e)
+        return []
 
-    finally:
-        # Fermer le navigateur
-        driver.quit()
-        print("Navigateur fermé.")
+seen_ids = set()
 
-
-
-# Exécution du script toutes les 20 minutes
-if __name__ == "__main__":
-    while True:
-        rechercher_annonces()
-        time.sleep(1200)  # Pause de 20 minutes avant de relancer la recherche
+while True:
+    print("🔍 Vérification des nouvelles annonces...")
+    items = fetch_new_items()
+    for item in items:
+        if item["id"] not in seen_ids:
+            send_discord_notification(item)
+            seen_ids.add(item["id"])
+    print("⏳ Nouvelle vérification dans 60 secondes...")
+    time.sleep(60)
