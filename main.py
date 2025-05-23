@@ -2,7 +2,7 @@
 import requests
 import time
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/1375552352010109040/ASAptOz6NiXR6eWPLvjUl6Vsx-SgGRJyIjx3KeRuUOtZiknHvokvP73e0nWGm1hyTvIP"
+WEBHOOK_URL = "https://discordapp.com/api/webhooks/1375552352010109040/ASAptOz6NiXR6eWPLvjUl6Vsx-SgGRJyIjx3KeRuUOtZiknHvokvP73e0nWGm1hyTvIP"
 SEARCH_URL = "https://www.vinted.fr/catalog?search_text=steelbook%204k&time=1748027744&order=newest_first&page=1"
 
 def send_discord_notification(item):
