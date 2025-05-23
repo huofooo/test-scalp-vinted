@@ -1,58 +1,71 @@
-
 import requests
 import time
+import hashlib
 
-WEBHOOK_URL = "https://discordapp.com/api/webhooks/1375552352010109040/ASAptOz6NiXR6eWPLvjUl6Vsx-SgGRJyIjx3KeRuUOtZiknHvokvP73e0nWGm1hyTvIP"
-SEARCH_URL = "https://www.vinted.fr/catalog?search_text=steelbook%204k&time=1748027744&order=newest_first&page=1"
+WEBHOOK_URL = "https://discord.com/api/webhooks/1375552352010109040/ASAptOz6NiXR6eWPLvjUl6Vsx-SgGRJyIjx3KeRuUOtZiknHvokvP73e0nWGm1hyTvIP"
+KEYWORD = "Steelbook 4k"
+CHECK_INTERVAL = 60  # secondes
 
-def send_discord_notification(item):
-    data = {
-        "content": f"📦 Nouvelle annonce Vinted : {item['title']}\n💶 Prix : {item['price']} €\n🔗 Lien : {item['url']}"
+def fetch_vinted_results(keyword):
+    url = f"https://www.vinted.fr/catalog?search_text={keyword.replace(' ', '%20')}&order=newest_first"
+    headers = {
+        "User-Agent": "Mozilla/5.0"
     }
-    response = requests.post(WEBHOOK_URL, json=data)
-    if response.status_code != 204:
-        print("❌ Échec de l'envoi Discord :", response.status_code, response.text)
-
-def fetch_new_items():
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
-        response = requests.get(SEARCH_URL, headers=headers)
+        response = requests.get(url, headers=headers)
         if response.status_code != 200:
             print(f"❌ Erreur HTTP : {response.status_code}")
-            return []
-
-        # Recherche basique des données
-        items = []
-        for match in response.text.split('data-testid="item-box"'):
-            if 'href="' in match and '€' in match:
-                try:
-                    url = "https://www.vinted.fr" + match.split('href="')[1].split('"')[0]
-                    title = match.split('title="')[1].split('"')[0]
-                    price = match.split("€")[0].split(">")[-1].strip()
-                    item_id = url.split("-")[-1]
-                    items.append({
-                        "id": item_id,
-                        "title": title,
-                        "price": price,
-                        "url": url
-                    })
-                except Exception as e:
-                    continue
-        return items
+            print(f"Contenu reçu : {response.text[:100]}")
+            return None
+        html = response.text
+        return html
     except Exception as e:
-        print("❌ Erreur :", e)
-        return []
+        print(f"❌ Exception : {e}")
+        return None
 
-seen_ids = set()
+def parse_dummy_ads(html):
+    # ⚠️ Remplacer cette fonction par un vrai parseur si on a une vraie API ou HTML parser
+    # Ici c'est un test simulé
+    return [{
+        "title": "Steelbook 4k test",
+        "price": "15€",
+        "url": "https://www.vinted.fr/items/000000-steelbook-4k-test"
+    }]
 
-while True:
-    print("🔍 Vérification des nouvelles annonces...")
-    items = fetch_new_items()
-    for item in items:
-        if item["id"] not in seen_ids:
-            send_discord_notification(item)
-            seen_ids.add(item["id"])
-    print("⏳ Nouvelle vérification dans 60 secondes...")
-    time.sleep(60)
+def send_to_discord(ad):
+    content = f"**{ad['title']}**\nPrix : {ad['price']}\nLien : {ad['url']}"
+    if len(content) > 2000:
+        content = content[:1990] + "..."
+
+    payload = {"content": content}
+    headers = {"Content-Type": "application/json"}
+    try:
+        response = requests.post(WEBHOOK_URL, json=payload, headers=headers)
+        if response.status_code != 204:
+            print(f"❌ Échec de l'envoi Discord : {response.status_code} {response.text}")
+        else:
+            print(f"✅ Nouvelle annonce envoyée : {ad['title']}")
+    except Exception as e:
+        print(f"❌ Exception lors de l'envoi : {e}")
+
+def main():
+    print("🚀 Démarrage du scalper Vinted...")
+    seen = set()
+    while True:
+        print("🔍 Vérification des annonces...")
+        html = fetch_vinted_results(KEYWORD)
+        if html:
+            ads = parse_dummy_ads(html)
+            for ad in ads:
+                ad_id = hashlib.md5(ad['url'].encode()).hexdigest()
+                if ad_id not in seen:
+                    seen.add(ad_id)
+                    send_to_discord(ad)
+                else:
+                    print("🔁 Annonce déjà vue.")
+        else:
+            print("⚠️ Aucun contenu reçu.")
+        time.sleep(CHECK_INTERVAL)
+
+if __name__ == "__main__":
+    main()
